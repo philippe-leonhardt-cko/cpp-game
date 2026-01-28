@@ -24,8 +24,9 @@ export interface ProjectConfig {
 export interface ProjectState {
   id: ProjectId;
   completedStages: number[]; // Indices of stages that have been completed
-  activeStageIndex: number | null; // Index of the stage currently in progress, if any
-  timerRemaining: number;
+  activeStageIndex: number | null; // Index of the stage currently in progress, if any (deprecated, kept for compatibility)
+  activeStages: Map<number, number>; // Map of stageIndex -> timerRemaining for multiple parallel stages
+  timerRemaining: number; // deprecated, kept for compatibility
   unlockedLogs: { text: string; stageIndex: number }[]; // Logs with their source stage
   isLocked: boolean;
 }

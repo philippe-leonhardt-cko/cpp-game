@@ -9,15 +9,33 @@ interface ProjectCardProps {
   quarter: number;
   onStartStage: (projectId: string, stageIndex: number) => void;
   onViewArtifact: (projectId: string, stageId: string) => void;
+  allProjects: Record<string, ProjectState>;
 }
 
-export const ProjectCard: React.FC<ProjectCardProps> = ({ config, state, quarter, onStartStage, onViewArtifact }) => {
+export const ProjectCard: React.FC<ProjectCardProps> = ({ config, state, quarter, onStartStage, onViewArtifact, allProjects }) => {
   // Identify the currently active stage if any
   const isComplete = state.completedStages.length === STAGES.length;
-  const activeStage = state.activeStageIndex !== null ? STAGES[state.activeStageIndex] : null;
-
+  
+  // Calculate global commercial discoveries count
+  let globalCommercialCount = 0;
+  Object.keys(allProjects).forEach(key => {
+    const proj = allProjects[key];
+    proj.activeStages.forEach((timer, stageIdx) => {
+      const stage = STAGES[stageIdx];
+      if (stage && stage.type === 'comm') {
+        globalCommercialCount++;
+      }
+    });
+  });
+  
   // Check if we need to show the Stop Work alert (Product or Validation phases)
-  const showStopWorkAlert = activeStage && (activeStage.type === 'prod' || activeStage.type === 'val');
+  let showStopWorkAlert = false;
+  state.activeStages.forEach((timer, stageIdx) => {
+    const activeStage = STAGES[stageIdx];
+    if (activeStage && (activeStage.type === 'prod' || activeStage.type === 'val')) {
+      showStopWorkAlert = true;
+    }
+  });
 
   const currentYield = getQuarterlyYield(config.id, quarter);
   const previousYield = quarter > 1 ? getQuarterlyYield(config.id, quarter - 1) : currentYield;
@@ -84,20 +102,39 @@ export const ProjectCard: React.FC<ProjectCardProps> = ({ config, state, quarter
           <div className="grid grid-cols-3 gap-2">
             {STAGES.map((stage, idx) => {
               const isDone = state.completedStages.includes(idx);
-              const isActive = state.activeStageIndex === idx;
-              // Allow selection if no stage is active in this project.
-              // This maintains the "one active stage per project" rule while allowing non-sequential starts.
-              const isProjectBusy = state.activeStageIndex !== null;
+              const isCommercial = stage.type === 'comm';
               
-              const isClickable = !isDone && !isProjectBusy;
+              // Check if there's an active product/validation stage (blocks other product/validation stages)
+              let hasActiveProdOrVal = false;
+              state.activeStages.forEach((timer, stageIdx) => {
+                const activeStage = STAGES[stageIdx];
+                if (activeStage && activeStage.type === 'prod') {
+                  hasActiveProdOrVal = true;
+                }
+              });
+              
+              // Product/validation stages are blocked by other product/validation stages
+              // Commercial stages are never blocked
+              const isBlockedByActiveProdOrVal = !isCommercial && hasActiveProdOrVal;
+              
+              // Commercial discoveries are blocked if we've reached the global limit of 3
+              const isBlockedByCommercialLimit = isCommercial && globalCommercialCount >= 3;
+              
+              // Disable p2 if p1 is not completed
+              const p1Index = STAGES.findIndex(s => s.id === 'p1');
+              const isP1Completed = state.completedStages.includes(p1Index);
+              const requiresP1 = stage.id === 'p2' && !isP1Completed;
+              
+              const isClickable = !isDone && !isBlockedByActiveProdOrVal && !isBlockedByCommercialLimit && !requiresP1;
+              const isThisStageActive = state.activeStages.has(idx);
 
               let btnColor = 'border-slate-800 bg-slate-900/50 text-slate-600';
               if (isDone) btnColor = 'border-green-500/30 bg-green-500/10 text-green-500';
-              else if (isActive) btnColor = 'border-yellow-500 bg-slate-800 shadow-[0_0_15px_rgba(234,179,8,0.3)]';
+              else if (isThisStageActive) btnColor = 'border-yellow-500 bg-slate-800 shadow-[0_0_15px_rgba(234,179,8,0.3)]';
               else if (isClickable) btnColor = 'border-white/20 bg-slate-800 hover:border-yellow-500 text-slate-300 hover:text-white cursor-pointer';
               else btnColor = 'border-slate-800 bg-slate-900/30 text-slate-700'; // Busy state for other buttons
 
-              if (stage.type === 'prod' && !isDone && !isActive && isClickable) {
+              if (stage.type === 'prod' && !isDone && !isThisStageActive && isClickable) {
                  btnColor = 'border-white/20 bg-slate-800 hover:border-red-500 hover:text-red-400 text-slate-300 cursor-pointer';
               }
 
@@ -113,19 +150,36 @@ const isValidV1 =
   validationProjects.includes(config.id);
 
 // 3. New Product Discovery Logic (Stage p3)
-// Must be p3 AND Q4 AND Tower
+// Must be p3 AND Q4 AND Tower AND v1 completed
+const v1Index = STAGES.findIndex(s => s.id === 'v1');
+const isV1Completed = state.completedStages.includes(v1Index);
 const isValidP3 = 
   stage.id === 'p3' && 
   quarter === 4 && 
-  config.id === 'tower';
+  config.id === 'tower' &&
+  isV1Completed;
 
-// 4. Final Visibility Check
+// 4. Hide p2 on Tower if v1 is completed but p2 is not done
+const p2Index = STAGES.findIndex(s => s.id === 'p2');
+const isP2Done = state.completedStages.includes(p2Index);
+const hideP2OnTower = 
+  stage.id === 'p2' && 
+  config.id === 'tower' && 
+  isV1Completed && 
+  !isP2Done;
+
+// 5. Final Visibility Check
 // Show if it's a valid v1, a valid p3, or if it's any other stage 
 // (assuming other stages like p1, p2 should always show)
-const shouldShow = (isValidV1 || isValidP3 || (stage.id !== 'v1' && stage.id !== 'p3'));
+// But hide p2 on Tower if v1 is done and p2 was skipped
+const shouldShow = (isValidV1 || isValidP3 || (stage.id !== 'v1' && stage.id !== 'p3')) && !hideP2OnTower;
 
               // 3. Only return the button if conditions are met
               if (!shouldShow) return null;
+              
+              // Check if this specific stage is active
+              const thisStageTimer = state.activeStages.get(idx);
+              const isStageRunning = thisStageTimer !== undefined;
 
               return (
                 <button
@@ -134,11 +188,11 @@ const shouldShow = (isValidV1 || isValidP3 || (stage.id !== 'v1' && stage.id !==
                   onClick={() => onStartStage(config.id, idx)}
                   className={`relative flex flex-col items-center justify-center p-2 rounded-xl border transition-all h-[60px] ${btnColor}`}
                 >
-                  {isActive ? (
+                  {isStageRunning ? (
                     <div className="flex flex-col items-center animate-pulse">
                         <div className="flex items-center gap-1 mb-0.5">
                            <Clock className="w-3 h-3 animate-spin text-yellow-500" />
-                           <span className="text-lg font-mono font-bold text-white tabular-nums leading-none">{state.timerRemaining}s</span>
+                           <span className="text-lg font-mono font-bold text-white tabular-nums leading-none">{thisStageTimer}s</span>
                         </div>
                         <span className="text-[7px] font-black uppercase tracking-wider text-yellow-500">Discovering</span>
                     </div>

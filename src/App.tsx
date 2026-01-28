@@ -7,10 +7,10 @@ import { ImageModal } from './components/ImageModal';
 import { Zap, Info, Shield, Siren } from 'lucide-react';
 
 const INITIAL_PROJECT_STATE: Record<string, ProjectState> = {
-  tower: { id: 'tower', completedStages: [], activeStageIndex: null, timerRemaining: 0, unlockedLogs: [], isLocked: false },
-  table: { id: 'table', completedStages: [], activeStageIndex: null, timerRemaining: 0, unlockedLogs: [], isLocked: false },
-  bridge: { id: 'bridge', completedStages: [], activeStageIndex: null, timerRemaining: 0, unlockedLogs: [], isLocked: false },
-  fish: { id: 'fish', completedStages: [], activeStageIndex: null, timerRemaining: 0, unlockedLogs: [], isLocked: true },
+  tower: { id: 'tower', completedStages: [], activeStageIndex: null, activeStages: new Map(), timerRemaining: 0, unlockedLogs: [], isLocked: false },
+  table: { id: 'table', completedStages: [], activeStageIndex: null, activeStages: new Map(), timerRemaining: 0, unlockedLogs: [], isLocked: false },
+  bridge: { id: 'bridge', completedStages: [], activeStageIndex: null, activeStages: new Map(), timerRemaining: 0, unlockedLogs: [], isLocked: false },
+  fish: { id: 'fish', completedStages: [], activeStageIndex: null, activeStages: new Map(), timerRemaining: 0, unlockedLogs: [], isLocked: true },
 };
 
 export default function App() {
@@ -68,21 +68,35 @@ export default function App() {
 
         Object.keys(next).forEach(key => {
           const p = next[key as ProjectId];
-          // Check if a stage is active (activeStageIndex is not null)
-          if (p.activeStageIndex !== null && p.timerRemaining > 0) {
-            p.timerRemaining -= 1;
-            stateChanged = true;
+          
+          // Process all active stages - create new Map to ensure React detects changes
+          const newActiveStages = new Map<number, number>();
+          const completedStageIndices: number[] = [];
+          
+          p.activeStages.forEach((timeRemaining, stageIndex) => {
+            if (timeRemaining > 1) {
+              // Still counting down
+              newActiveStages.set(stageIndex, timeRemaining - 1);
+              stateChanged = true;
 
-            // Check if this is a high stakes wait for siren logic
-            const currentStage = STAGES[p.activeStageIndex];
-            if (currentStage && (currentStage.type === 'prod' || currentStage.type === 'val')) {
-              isAnyHighStakes = true;
+              // Check if this is a high stakes wait for siren logic
+              const currentStage = STAGES[stageIndex];
+              if (currentStage && (currentStage.type === 'prod' || currentStage.type === 'val')) {
+                isAnyHighStakes = true;
+              }
+            } else if (timeRemaining <= 1) {
+              // Stage Complete (use <= to catch any edge cases)
+              completedStageIndices.push(stageIndex);
+              stateChanged = true;
             }
-          } else if (p.activeStageIndex !== null && p.timerRemaining === 0) {
-            // Stage Complete
-            const completedIndex = p.activeStageIndex;
-            
-            // Add to completed list if not already there (though UI prevents restarting active)
+          });
+          
+          // Update to new active stages Map
+          p.activeStages = newActiveStages;
+          
+          // Process completed stages
+          completedStageIndices.forEach(completedIndex => {
+            // Add to completed list if not already there
             if (!p.completedStages.includes(completedIndex)) {
               p.completedStages.push(completedIndex);
             }
@@ -94,9 +108,34 @@ export default function App() {
               p.unlockedLogs = [{ text: intelText, stageIndex: completedIndex }, ...p.unlockedLogs];
             }
 
-            p.activeStageIndex = null; // Clear active stage
-            stateChanged = true;
             chimeRef.current?.play().catch(() => {});
+          });
+          
+          // Update legacy fields for compatibility
+          if (p.activeStages.size > 0) {
+            // Find the first prod/val stage, or just the first stage
+            let prodOrValStage: { idx: number; timer: number } | null = null;
+            for (const [idx, timer] of p.activeStages.entries()) {
+              const stage = STAGES[idx];
+              if (stage && stage.type === 'prod') {
+                prodOrValStage = { idx, timer };
+                break;
+              }
+            }
+            if (!prodOrValStage && p.activeStages.size > 0) {
+              const firstEntry = p.activeStages.entries().next().value;
+              if (firstEntry) {
+                const [idx, timer] = firstEntry as [number, number];
+                prodOrValStage = { idx, timer };
+              }
+            }
+            if (prodOrValStage) {
+              p.activeStageIndex = prodOrValStage.idx;
+              p.timerRemaining = prodOrValStage.timer;
+            }
+          } else {
+            p.activeStageIndex = null;
+            p.timerRemaining = 0;
           }
         });
 
@@ -121,8 +160,8 @@ export default function App() {
 
     const currentProjectState = projects[projectId];
     
-    // Prevent starting if already active or locked (global lock)
-    if (currentProjectState.activeStageIndex !== null || currentProjectState.isLocked) return;
+    // Prevent starting if already active in this project's active stages, or if locked
+    if (currentProjectState.activeStages.has(stageIndex) || currentProjectState.isLocked) return;
 
     // Record Transaction
     const newTx: Transaction = {
@@ -135,15 +174,21 @@ export default function App() {
     };
     setTransactions(prev => [...prev, newTx]);
 
-    // Start Project Timer
-    setProjects(prev => ({
-      ...prev,
-      [projectId]: {
-        ...prev[projectId],
-        activeStageIndex: stageIndex,
-        timerRemaining: stage.duration
-      }
-    }));
+    // Start Project Timer - add to active stages
+    setProjects(prev => {
+      const newActiveStages = new Map(prev[projectId].activeStages);
+      newActiveStages.set(stageIndex, stage.duration);
+      
+      return {
+        ...prev,
+        [projectId]: {
+          ...prev[projectId],
+          activeStages: newActiveStages,
+          activeStageIndex: stageIndex, // Keep for backward compatibility
+          timerRemaining: stage.duration // Keep for backward compatibility
+        }
+      };
+    });
   };
 
   const handleViewArtifact = (projectId: string, stageId: string) => {
@@ -210,6 +255,38 @@ export default function App() {
                 <span className="text-[9px] text-slate-500 font-black uppercase tracking-widest">Current Quarter</span>
                 <span className="text-xl font-bold text-yellow-500">Q{quarter}</span>
             </div>
+            <div className="hidden lg:flex flex-col gap-1">
+                <div className="flex items-center gap-2">
+                    <div className="w-2 h-2 rounded-full bg-blue-400 animate-pulse" />
+                    <span className="text-xs font-bold text-slate-300">
+                        {(() => {
+                            let count = 0;
+                            Object.keys(projects).forEach(key => {
+                                const proj = projects[key];
+                                proj.activeStages.forEach((timer, idx) => {
+                                    if (STAGES[idx]?.type === 'comm') count++;
+                                });
+                            });
+                            return count;
+                        })()}/3 <span className="text-slate-500">Commercial</span>
+                    </span>
+                </div>
+                <div className="flex items-center gap-2">
+                    <div className="w-2 h-2 rounded-full bg-red-500 animate-pulse" />
+                    <span className="text-xs font-bold text-slate-300">
+                        {(() => {
+                            let count = 0;
+                            Object.keys(projects).forEach(key => {
+                                const proj = projects[key];
+                                proj.activeStages.forEach((timer, idx) => {
+                                    if (STAGES[idx]?.type === 'prod') count++;
+                                });
+                            });
+                            return count;
+                        })()} <span className="text-slate-500">Product</span>
+                    </span>
+                </div>
+            </div>
             <div className="bg-slate-950 px-8 py-2 rounded-2xl border border-white/10 text-center flex flex-col shadow-inner min-w-[140px]">
             <span className="text-[9px] text-slate-500 font-black uppercase tracking-widest mb-0.5">Score</span>
             <span className={`text-3xl font-black tabular-nums ${currentScore < 0 ? 'text-red-500' : 'text-green-400'}`}>
@@ -270,6 +347,7 @@ export default function App() {
                         quarter={quarter}
                         onStartStage={handleStartStage}
                         onViewArtifact={handleViewArtifact}
+                        allProjects={projects}
                     />
                 ))}
             </div>
@@ -296,7 +374,7 @@ export default function App() {
                 <span className="hidden sm:inline">•</span>
                 <span className="hidden sm:inline">Built with ❤️ by Mohamed Essam and Philippe Leonhardt</span>
             </div>
-            <span>v4.2.0</span>
+            <span>v2.0.0</span>
         </div>
       </footer>
     </div>
