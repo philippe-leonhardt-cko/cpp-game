@@ -1,7 +1,7 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { ProjectConfig, ProjectState, Transaction } from '../types';
 import { getQuarterlyYield } from '../constants';
-import { Check, X, AlertOctagon, History, FileText } from 'lucide-react';
+import { Check, X, AlertOctagon, History, FileText, Download } from 'lucide-react';
 
 interface AuditViewProps {
   transactions: Transaction[];
@@ -28,12 +28,134 @@ export const AuditView: React.FC<AuditViewProps> = ({
   projectConfigs: PROJECTS,
   isDemoMode
 }) => {
+  const [showExportModal, setShowExportModal] = useState(false);
+  const [teamName, setTeamName] = useState('');
+  const [teamNameError, setTeamNameError] = useState('');
+
   const grossYield = Object.keys(completedProjects).reduce((sum, id) => {
     return completedProjects[id] ? sum + getQuarterlyYield(id, quarter, isDemoMode) : sum;
   }, 0);
 
   const totalCost = transactions.reduce((sum, t) => sum + t.cost, 0);
   const finalScore = grossYield - totalCost - penalties;
+
+  const handleExportClick = () => {
+    setTeamName('');
+    setTeamNameError('');
+    setShowExportModal(true);
+  };
+
+  const handleTeamNameChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    // Only allow alphanumeric characters and spaces
+    const value = e.target.value.replace(/[^a-zA-Z0-9 ]/g, '');
+    setTeamName(value);
+    if (value) {
+      setTeamNameError('');
+    }
+  };
+
+  const exportScorecard = () => {
+    if (!teamName.trim()) {
+      setTeamNameError('Team name is required');
+      return;
+    }
+    
+    const now = new Date();
+    const timestamp = now.toLocaleString();
+    const filenameTimestamp = now.toISOString().replace(/[-:]/g, '').replace(/\.\d{3}Z$/, '').replace('T', 'T');
+    const modeLabel = isDemoMode ? 'DEMO MODE' : '';
+    
+    let content = `================================================================================
+SCORECARD EXPORT - TEAM: ${teamName.toUpperCase()}
+${modeLabel}
+================================================================================
+Generated: ${timestamp}
+
+================================================================================
+PRODUCTS BUILT TO MARKET SPECIFICATION
+================================================================================
+
+Product                      Status           Yield
+--------------------------   --------------   ------
+`;
+
+    // Products section
+    Object.keys(PROJECTS).forEach((key) => {
+      const p = PROJECTS[key];
+      const state = projects[p.id];
+      if (state.isLocked) return;
+      
+      const currentYield = getQuarterlyYield(p.id, quarter, isDemoMode);
+      const isCompleted = completedProjects[p.id];
+      const status = isCompleted ? '[✓] BUILT' : '[✗] NOT BUILT';
+      const yieldValue = isCompleted ? `+${currentYield}` : '0';
+      
+      const product = `${p.icon} ${p.name.padEnd(23)}`;
+      const statusCol = status.padEnd(15);
+      content += `${product}  ${statusCol}  ${yieldValue}\n`;
+    });
+
+    content += `
+================================================================================
+DISCOVERY BURN LOG
+================================================================================
+
+`;
+
+    if (transactions.length === 0) {
+      content += `No discovery transactions recorded.\n`;
+    } else {
+      content += `Quarter  Project                    Stage               Cost\n`;
+      content += `-------  ----------------------     ----------------    ------\n`;
+      transactions.forEach((t) => {
+        const qtr = `Q${t.quarter}`.padEnd(7);
+        const proj = t.project.padEnd(25);
+        const stage = t.stage.padEnd(18);
+        const cost = `-${t.cost}`;
+        content += `${qtr}  ${proj}  ${stage}  ${cost}\n`;
+      });
+    }
+
+    content += `
+================================================================================
+PENALTIES
+================================================================================
+
+Total Penalties: -${penalties}
+
+================================================================================
+PROFIT & LOSS SUMMARY
+================================================================================
+
+Yield:                         +${grossYield}
+Discovery Costs:               -${totalCost}
+Penalties:                     -${penalties}
+                               ${'='.repeat(30)}
+SCORE:                         ${finalScore > 0 ? '+' : ''}${finalScore}
+
+================================================================================
+END OF SCORECARD - TEAM: ${teamName.toUpperCase()}
+================================================================================
+`;
+
+    // Create and download file
+    const blob = new Blob([content], { type: 'text/plain' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `cpp-scorecard-${teamName}-${filenameTimestamp}.txt`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    setShowExportModal(false);
+  };
+
+  const handleCancelExport = () => {
+    setShowExportModal(false);
+    setTeamName('');
+    setTeamNameError('');
+  };
 
   return (
     <div className="space-y-6 animate-fade-in pb-32 max-w-3xl mx-auto">
@@ -107,29 +229,37 @@ export const AuditView: React.FC<AuditViewProps> = ({
             <div className="flex items-center gap-2 mb-1">
               <AlertOctagon className="text-red-500" size={16} />
               <h4 className="text-xs font-black text-red-500 uppercase tracking-widest italic">
-                Regulatory Fines
+                Penalties
               </h4>
             </div>
             <p className="text-[10px] text-slate-500 font-bold max-w-[200px] leading-tight">
-              Deduct 200 pts for every violation of the rules.
+              Count the number of penalties.
             </p>
           </div>
-          <div className="flex items-center gap-4 bg-slate-950 p-2 rounded-2xl border border-white/5">
-            <button
-              onClick={() => onPenaltyChange(-200)}
-              className="w-10 h-10 flex items-center justify-center bg-slate-900 rounded-xl font-black text-slate-400 hover:text-white hover:bg-slate-800 transition-colors text-lg"
-            >
-              -
-            </button>
-            <span className="text-2xl font-black text-red-500 tabular-nums min-w-[60px] text-center">
-              -{penalties}
-            </span>
-            <button
-              onClick={() => onPenaltyChange(200)}
-              className="w-10 h-10 flex items-center justify-center bg-slate-900 rounded-xl font-black text-slate-400 hover:text-white hover:bg-slate-800 transition-colors text-lg"
-            >
-              +
-            </button>
+          <div className="flex items-center gap-6">
+            <div className="flex flex-col items-center gap-2">
+              <p className="text-[10px] text-slate-500 font-bold uppercase tracking-wider">
+                Count
+              </p>
+              <div className="flex items-center gap-4 bg-slate-950 p-2 rounded-2xl border border-white/5">
+                <button
+                  onClick={() => penalties > 0 && onPenaltyChange(-200)}
+                  disabled={penalties === 0}
+                  className="w-10 h-10 flex items-center justify-center bg-slate-900 rounded-xl font-black text-slate-400 hover:text-white hover:bg-slate-800 disabled:opacity-30 disabled:cursor-not-allowed transition-colors text-lg"
+                >
+                  -
+                </button>
+                <span className={`text-2xl font-black tabular-nums min-w-[40px] text-center ${penalties === 0 ? 'text-green-500' : 'text-red-500'}`}>
+                  {penalties / 200}
+                </span>
+                <button
+                  onClick={() => onPenaltyChange(200)}
+                  className="w-10 h-10 flex items-center justify-center bg-slate-900 rounded-xl font-black text-slate-400 hover:text-white hover:bg-slate-800 transition-colors text-lg"
+                >
+                  +
+                </button>
+              </div>
+            </div>
           </div>
         </div>
 
@@ -138,7 +268,7 @@ export const AuditView: React.FC<AuditViewProps> = ({
           <div className="flex items-center gap-2 mb-4">
             <History className="text-slate-500" size={14} />
             <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest">
-              R&D Burn Log
+              Discovery Burn Log
             </span>
           </div>
           <div className="space-y-2 max-h-40 overflow-y-auto pr-2 scrollbar-hide">
@@ -170,19 +300,19 @@ export const AuditView: React.FC<AuditViewProps> = ({
         <div className="grid grid-cols-3 gap-4 mb-8">
           <div className="text-center p-4 bg-slate-900/50 rounded-2xl">
             <span className="text-[9px] font-black uppercase text-slate-500 block mb-1">
-              Gross Yield
+              Yield
             </span>
             <span className="text-xl font-black text-white">+{grossYield}</span>
           </div>
           <div className="text-center p-4 bg-slate-900/50 rounded-2xl">
             <span className="text-[9px] font-black uppercase text-slate-500 block mb-1">
-              R&D Costs
+              Discovery Costs
             </span>
             <span className="text-xl font-black text-red-500">-{totalCost}</span>
           </div>
           <div className="text-center p-4 bg-slate-900/50 rounded-2xl">
             <span className="text-[9px] font-black uppercase text-slate-500 block mb-1">
-              Regulatory
+              Penalties
             </span>
             <span className="text-xl font-black text-red-500">-{penalties}</span>
           </div>
@@ -190,20 +320,81 @@ export const AuditView: React.FC<AuditViewProps> = ({
 
         <div className="border-t border-white/5 pt-10">
           <p className="text-[10px] font-black text-slate-600 uppercase tracking-[0.4em] mb-4">
-            Consolidated Market Yield
+            Score
           </p>
           <div
             className={`text-[5rem] sm:text-[7rem] font-black tracking-tighter tabular-nums leading-none drop-shadow-2xl ${
-              finalScore < 0 ? 'text-red-500' : 'text-white'
+              finalScore < 0 ? 'text-red-500' : 'text-green-500'
             }`}
           >
-            {finalScore}
+            {finalScore > 0 ? '+' : ''}{finalScore}
           </div>
-          <p className="text-[9px] text-slate-800 font-black uppercase mt-10 tracking-widest italic opacity-50">
-            Audited Portfolio Engine v4.2
-          </p>
+          <button
+            onClick={handleExportClick}
+            className="mt-8 flex items-center gap-2 px-6 py-3 bg-yellow-500/10 hover:bg-yellow-500/20 border-2 border-yellow-500/30 hover:border-yellow-500/50 rounded-2xl text-xs font-black uppercase tracking-widest text-yellow-500 hover:text-yellow-400 transition-all mx-auto shadow-lg hover:shadow-yellow-500/20"
+          >
+            <Download size={16} strokeWidth={3} />
+            Export Scorecard
+          </button>
         </div>
       </div>
+
+      {/* Export Modal */}
+      {showExportModal && (
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-50 animate-fade-in">
+          <div className="bg-slate-900 border-2 border-yellow-500/30 rounded-3xl p-8 max-w-md w-full mx-4 shadow-2xl">
+            <h3 className="text-2xl font-black text-yellow-500 uppercase italic mb-6 tracking-tighter">
+              Export Scorecard
+            </h3>
+            
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-bold text-slate-300 mb-2 uppercase tracking-wider">
+                  Team Name
+                </label>
+                <input
+                  type="text"
+                  value={teamName}
+                  onChange={handleTeamNameChange}
+                  placeholder="Enter team name"
+                  className="w-full px-4 py-3 bg-slate-800 border-2 border-slate-700 focus:border-yellow-500/50 rounded-xl text-white placeholder-slate-500 outline-none transition-all font-mono"
+                  autoFocus
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      exportScorecard();
+                    } else if (e.key === 'Escape') {
+                      handleCancelExport();
+                    }
+                  }}
+                />
+                {teamNameError && (
+                  <p className="mt-2 text-xs text-red-400 font-semibold">
+                    {teamNameError}
+                  </p>
+                )}
+                <p className="mt-2 text-xs text-slate-500">
+                  Alphanumeric characters and spaces only
+                </p>
+              </div>
+
+              <div className="flex gap-3 pt-4">
+                <button
+                  onClick={handleCancelExport}
+                  className="flex-1 px-4 py-3 bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded-xl text-sm font-bold uppercase tracking-wider text-slate-400 hover:text-slate-300 transition-all"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={exportScorecard}
+                  className="flex-1 px-4 py-3 bg-yellow-500/20 hover:bg-yellow-500/30 border-2 border-yellow-500/50 hover:border-yellow-500 rounded-xl text-sm font-bold uppercase tracking-wider text-yellow-500 hover:text-yellow-400 transition-all"
+                >
+                  Export
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
