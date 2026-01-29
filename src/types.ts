@@ -1,4 +1,4 @@
-export type ProjectId = 'tower' | 'table' | 'bridge' | 'fish';
+export type ProjectId = 'tower' | 'table' | 'bridge' | 'fish' | 'banana';
 
 export interface DiscoveryStage {
   id: string;

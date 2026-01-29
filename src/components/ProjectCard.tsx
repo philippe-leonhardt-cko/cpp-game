@@ -1,6 +1,6 @@
 import React from 'react';
 import { ProjectConfig, ProjectState, DiscoveryStage } from '../types';
-import { STAGES, getQuarterlyYield } from '../constants';
+import { getQuarterlyYield } from '../constants';
 import { Lock, Clock, AlertTriangle, FileText, CheckCircle, TrendingUp, TrendingDown, Minus } from 'lucide-react';
 
 interface ProjectCardProps {
@@ -10,9 +10,11 @@ interface ProjectCardProps {
   onStartStage: (projectId: string, stageIndex: number) => void;
   onViewArtifact: (projectId: string, stageId: string) => void;
   allProjects: Record<string, ProjectState>;
+  stages: DiscoveryStage[];
+  isDemoMode: boolean;
 }
 
-export const ProjectCard: React.FC<ProjectCardProps> = ({ config, state, quarter, onStartStage, onViewArtifact, allProjects }) => {
+export const ProjectCard: React.FC<ProjectCardProps> = ({ config, state, quarter, onStartStage, onViewArtifact, allProjects, stages: STAGES, isDemoMode }) => {
   // Identify the currently active stage if any
   const isComplete = state.completedStages.length === STAGES.length;
   
@@ -37,8 +39,8 @@ export const ProjectCard: React.FC<ProjectCardProps> = ({ config, state, quarter
     }
   });
 
-  const currentYield = getQuarterlyYield(config.id, quarter);
-  const previousYield = quarter > 1 ? getQuarterlyYield(config.id, quarter - 1) : currentYield;
+  const currentYield = getQuarterlyYield(config.id, quarter, isDemoMode);
+  const previousYield = quarter > 1 ? getQuarterlyYield(config.id, quarter - 1, isDemoMode) : currentYield;
   
   // Determine trend
   let trendIcon = <Minus size={12} className="text-slate-500" />;
@@ -57,7 +59,7 @@ export const ProjectCard: React.FC<ProjectCardProps> = ({ config, state, quarter
         <div className="absolute inset-0 flex items-center justify-center bg-black/20 backdrop-blur-sm z-10">
           <div className="flex flex-col items-center text-slate-500">
             <Lock className="w-8 h-8 mb-2" />
-            <span className="text-xs font-bold uppercase tracking-widest">Locked until Q{config.lockedUntilQuarter}</span>
+            <span className="text-xs font-bold uppercase tracking-widest">Locked until a later quarter</span>
           </div>
         </div>
         <div className="flex justify-between items-start mb-6">
@@ -94,7 +96,7 @@ export const ProjectCard: React.FC<ProjectCardProps> = ({ config, state, quarter
         </div>
 
         <h3 className="text-2xl font-black mb-1 italic tracking-tight text-white">{config.name}</h3>
-        <p className="text-[10px] text-slate-500 font-black mb-8 uppercase tracking-widest">{config.bricks} Bricks Required</p>
+        <p className="text-[12px] text-slate-500 font-black mb-8 uppercase tracking-widest">{config.bricks} Bricks Required</p>
 
 
         {/* Stages Grid */}
@@ -198,15 +200,15 @@ const shouldShow = (isValidV1 || isValidP3 || (stage.id !== 'v1' && stage.id !==
                     </div>
                   ) : (
                     <>
-                      <span className="text-[9px] font-black uppercase mb-1 leading-none">{stage.label}</span>
+                      <span className="text-[12px] font-black uppercase mb-1 leading-none">{stage.label}</span>
                       {isDone ? (
                         <CheckCircle className="w-4 h-4" />
                       ) : (
                         <>
-                          <span className={`text-xs font-black leading-none ${stage.type === 'prod' ? 'text-red-500' : 'text-blue-400'}`}>
+                          <span className={`text-[14px] font-black leading-none ${stage.type === 'prod' ? 'text-red-500' : 'text-blue-400'}`}>
                             -{stage.cost}
                           </span>
-                          <span className="text-[8px] font-bold uppercase opacity-50 mt-1 leading-none">{stage.duration}s</span>
+                          <span className="text-xs font-bold opacity-50 mt-1 leading-none">{stage.duration}s</span>
                         </>
                       )}
                     </>

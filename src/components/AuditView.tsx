@@ -1,6 +1,6 @@
 import React from 'react';
 import { ProjectConfig, ProjectState, Transaction } from '../types';
-import { PROJECTS, getQuarterlyYield } from '../constants';
+import { getQuarterlyYield } from '../constants';
 import { Check, X, AlertOctagon, History, FileText } from 'lucide-react';
 
 interface AuditViewProps {
@@ -12,6 +12,8 @@ interface AuditViewProps {
   projects: Record<string, ProjectState>;
   quarter: number;
   onViewArtifact: (projectId: string, stageId: string) => void;
+  projectConfigs: Record<string, ProjectConfig>;
+  isDemoMode: boolean;
 }
 
 export const AuditView: React.FC<AuditViewProps> = ({ 
@@ -22,10 +24,12 @@ export const AuditView: React.FC<AuditViewProps> = ({
   onPenaltyChange,
   projects,
   quarter,
-  onViewArtifact
+  onViewArtifact,
+  projectConfigs: PROJECTS,
+  isDemoMode
 }) => {
   const grossYield = Object.keys(completedProjects).reduce((sum, id) => {
-    return completedProjects[id] ? sum + getQuarterlyYield(id, quarter) : sum;
+    return completedProjects[id] ? sum + getQuarterlyYield(id, quarter, isDemoMode) : sum;
   }, 0);
 
   const totalCost = transactions.reduce((sum, t) => sum + t.cost, 0);
@@ -44,10 +48,11 @@ export const AuditView: React.FC<AuditViewProps> = ({
           </span>
           
           <div className="space-y-3">
-            {Object.values(PROJECTS).map((p) => {
+            {Object.keys(PROJECTS).map((key) => {
+               const p = PROJECTS[key];
                const state = projects[p.id];
                if (state.isLocked) return null;
-               const currentYield = getQuarterlyYield(p.id, quarter);
+               const currentYield = getQuarterlyYield(p.id, quarter, isDemoMode);
                const isCompleted = completedProjects[p.id];
                
                return (
