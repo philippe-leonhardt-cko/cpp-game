@@ -200,16 +200,20 @@ const shouldShow = (isValidV1 || isValidP3 || (stage.id !== 'v1' && stage.id !==
                     </div>
                   ) : (
                     <>
-                      <span className="text-[12px] font-black uppercase mb-1 leading-none">{stage.label}</span>
+                      <span className="text-[12px] font-black uppercase mb-2 leading-none">{stage.label}</span>
                       {isDone ? (
                         <CheckCircle className="w-4 h-4" />
                       ) : (
-                        <>
-                          <span className={`text-[14px] font-black leading-none ${stage.type === 'prod' ? 'text-red-500' : 'text-blue-400'}`}>
-                            -{stage.cost}
-                          </span>
-                          <span className="text-xs font-bold opacity-50 mt-1 leading-none">{stage.duration}s</span>
-                        </>
+                        <div className="flex items-stretch w-full gap-1">
+                          <div className="flex-1 flex items-center justify-center bg-slate-950/50 rounded-lg py-1">
+                            <span className="text-lg font-bold text-slate-400 tabular-nums leading-none">{stage.duration}s</span>
+                          </div>
+                          <div className="flex-1 flex items-center justify-center bg-slate-950/50 rounded-lg py-1">
+                            <span className={`text-lg font-black leading-none ${stage.type === 'prod' ? 'text-red-500' : 'text-blue-400'}`}>
+                              -{stage.cost}
+                            </span>
+                          </div>
+                        </div>
                       )}
                     </>
                   )}
